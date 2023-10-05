@@ -1,0 +1,2 @@
+[console_scripts]
+robotpy = robotpywrapper.robotpy:main
