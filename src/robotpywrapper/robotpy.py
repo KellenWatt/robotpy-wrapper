@@ -322,10 +322,14 @@ def deploy(args) -> None:
     config = load_config()
 
     if not "auth" in config or not "hostname" in config["auth"]:
-        host = input("Enter host name or team number: ")
+        host = input("Enter host name or team number: ").strip()
+        if len(host) == 0:
+            fatal("No hostname supplied")
+        
         if "auth" not in config:
             config["auth"] = {}
         config["auth"]["hostname"] = host
+        write_auth_config()
 
     if args.deploy_lib:
         if "requirements.deployed" not in config:
