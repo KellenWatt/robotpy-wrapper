@@ -10,5 +10,3 @@ Classifier: Operating System :: OS Independent
 Classifier: Framework :: Robot Framework :: Library
 Requires-Python: >=3.8
 License-File: LICENSE
-Requires-Dist: robotpy
-Requires-Dist: robotpy-installer

@@ -86,7 +86,7 @@ def expect_result(result: subprocess.CompletedProcess, msg: str, absolute: bool 
             fatal(msg)
         else:
             error(msg)
-    return result.returncode != 0
+    return result.returncode == 0
 
 def move_to_robotpy_dir() -> None:
     while not os.path.isfile(".robotpy"):
@@ -269,10 +269,10 @@ def analyze(args) -> None:
                 msg("{} not found. Attempting to install using pip.".format(tool))
                 res = python(["-m", "pip", "install", tool])
                 if expect_result(res, "Installation failed. Skipping {}".format(tool), absolute=False):
-                    msg("analyzer {} added".format(tool))
+                    msg("analyzer '{}' added".format(tool))
                     tools.append(tool)
             else:
-                msg("analyzer {} added".format(tool))
+                msg("analyzer '{}' added".format(tool))
                 tools.append(tool)
 
         packages = load_packages(refresh=True)
@@ -282,6 +282,18 @@ def analyze(args) -> None:
 
         for tool in tools:
             config["analyze.tools"][tool] = packages[tool]
+    elif args.remove is not None:
+        if "analyze.tools" not in config:
+            msg("no tools registered")
+            sys.exit(1)
+        for tool in args.remove:
+            if tool in config["analyze.tools"]:
+                del config["analyze.tools"][tool]
+                msg("analyzer '{}' removed".format(tool))
+            else:
+                warn("{} is not a rgistered analyzer", tool)
+        if len(config["analyze.tools"]) == 0:
+            del(config["analyze.tools"])
     elif args.list:
         if "analyze.tools" not in config:
             return
@@ -308,6 +320,13 @@ def deploy(args) -> None:
     # Any requirements that have a higher version number than the deployed get deployed. (or all  if the section doesn't exist)
     move_to_robotpy_dir()
     config = load_config()
+
+    if not "auth" in config or not "hostname" in config["auth"]:
+        host = input("Enter host name or team number: ")
+        if "auth" not in config:
+            config["auth"] = {}
+        config["auth"]["hostname"] = host
+
     if args.deploy_lib:
         if "requirements.deployed" not in config:
             config["requirements.deployed"] = {}
@@ -412,6 +431,7 @@ check_group = check_parser.add_mutually_exclusive_group()
 check_group.add_argument("-a", "--add", nargs="+")
 check_group.add_argument("-l", "--list", action="store_true")
 check_group.add_argument("--use", nargs="+")
+check_group.add_argument("-r", "--remove", nargs="+")
 
 deploy_parser = subparsers.add_parser("deploy")
 deploy_parser.set_defaults(func=deploy)
