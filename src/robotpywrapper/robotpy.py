@@ -13,6 +13,32 @@ import shlex
 
 
 verbose_level = 1
+skeleton_main = """import wpilib
+
+class Robot(wpilib.TimedRobot):
+    def robotInit(self) -> None:
+        pass
+
+    def robotPeriodic(self) -> None:
+        pass
+
+    def autonomousInit(self) -> None:
+        pass
+
+    def autonomousPeriodic(self) -> None:
+        pass
+
+    def teleopInit(self) -> None:
+        pass
+
+    def teleopPeriodic(self) -> None:
+        pass
+
+
+if __name__ == "__main__":
+    wpilib.run(Robot)
+"""
+
 
 def python(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     #  cmd = ["python3"]
@@ -54,12 +80,13 @@ def fatal(m: str, *args: Any) -> None:
     msg("fatal: {}".format(m), sys.stderr)
     sys.exit(1)
 
-def expect_result(result: subprocess.CompletedProcess, msg: str, absolute: bool = True) -> None:
+def expect_result(result: subprocess.CompletedProcess, msg: str, absolute: bool = True) -> bool:
     if result.returncode != 0:
         if absolute:
             fatal(msg)
         else:
             error(msg)
+    return result.returncode != 0
 
 def move_to_robotpy_dir() -> None:
     while not os.path.isfile(".robotpy"):
@@ -88,7 +115,15 @@ def load_packages(refresh: bool = False) -> dict[str, str]:
         reqs = {req[0]: req[1] for req in splits if len(req) == 2}
         packages = reqs
     return packages
-    
+
+def write_auth_config() -> None:
+    config = load_config()
+
+    auth = "[auth]\nhostname = {}\n".format(config["auth"]["hostname"])
+    with open(".deploy_cfg", "w") as f:
+        f.write(auth)
+    with open(".installer_config", "w") as f:
+        f.write(auth)
 
 def install_package(pkgs: list[str], download: bool = True) -> None:
     if len(pkgs) == 0:
@@ -135,52 +170,21 @@ def initialize(args) -> None:
     if os.path.isfile(".robotpy"):
         msg("{} already exists. If you want to reset, delete the file an re-run `robotpy init`".format(os.path.join(target, ".robotpy")))
     else:
+        packages = load_packages()
         config["requirements"] = {"robotpy": packages["robotpy"]}
-        #  with open(".robotpy", "w") as f:
-        #      packages = load_packages()
-        #      f.write("[requirements]\nrobotpy = {}".format(packages["robotpy"]))
 
-    config["execution"] = {"main": args.main}
+    config["exec"] = {"main": args.main}
     
     if args.host is not None:
-        auth = "[auth]\nhostname = {}\n".format(args.host)
-        with open(".deploy_cfg", "w") as f:
-            f.write(auth)
-        with open(".installer_cfg", "w") as f:
-            f.write(auth)
         config["auth"] = {"hostname": args.host}
+        write_auth_config()
 
     if not args.bare:
         if os.path.isfile(args.main):
             error("{} already exists. Skipping main file creation.", args.main)
         else:
             with open(args.main, "w") as f:
-                f.write(
-"""import wpilib
-
-class Robot(wpilib.TimedRobot):
-    def robotInit(self) -> None:
-        pass
-
-    def robotPeriodic(self) -> None:
-        pass
-
-    def autonomousInit(self) -> None:
-        pass
-
-    def autonomousPeriodic(self) -> None:
-        pass
-
-    def teleopInit(self) -> None:
-        pass
-
-    def teleopPeriodic(self) -> None:
-        pass
-
-
-if __name__ == "__main__":
-    wpilib.run(Robot)
-""")
+                f.write(skeleton_main)
 
     if args.git:
         subprocess.run(["git", "init"])
@@ -204,6 +208,8 @@ def remove(args) -> None:
         if pkg == "robotpy":
             error("robotpy can't be removed from requirements")
             continue
+        if is_robotpy_addon(pkg):
+            pkg = format_robotpy_addon(pkg)
         
         if pkg in config["requirements"]:
             del config["requirements"][pkg]
@@ -211,9 +217,6 @@ def remove(args) -> None:
             error("'{}' is not installed in this project", pkg)
 
 def install(args) -> None:
-    #download for robot and install local simultaneously
-    # inspect packages. If contains shorthand for component, install expanded package name (support 'all')
-    # store robotpy installed packages to (global?) file, including if downloaded for remote.
     move_to_robotpy_dir()
 
     pkgs = [(format_robotpy_addon(name) if is_robotpy_addon(name) else name) for name in args.packages]
@@ -237,6 +240,68 @@ def update(args) -> None:
 
     install_package(pkgs, download=args.download)
 
+def run_checks(tools) -> None:
+    move_to_robotpy_dir() # not strictly necessary, but can't hurt
+    config = load_config()
+
+    stop_on_fail = True
+    if "analyze" in config and "onfail" in config["analyze"]:
+        if config["analyze"]["onfail"] == "continue":
+            stop_on_fail = False
+
+    for tool in tools:
+        msg("running analyzer: {}".format(tool))
+        res = subprocess.run([tool, config["exec"]["main"]])
+        expect_result(res, "{} failed".format(tool), absolute=stop_on_fail)
+
+
+def analyze(args) -> None:
+    move_to_robotpy_dir()
+    config = load_config()
+    if args.add is not None:
+        packages = load_packages()
+        tools = []
+        for tool in args.add:
+            if "analyze.tools" in config and tool in config["analyze.tools"]:
+                msg("{} is already registered".format(tool))
+                continue
+            if tool not in packages:
+                msg("{} not found. Attempting to install using pip.".format(tool))
+                res = python(["-m", "pip", "install", tool])
+                if expect_result(res, "Installation failed. Skipping {}".format(tool), absolute=False):
+                    msg("analyzer {} added".format(tool))
+                    tools.append(tool)
+            else:
+                msg("analyzer {} added".format(tool))
+                tools.append(tool)
+
+        packages = load_packages(refresh=True)
+
+        if "analyze.tools" not in config and len(tools) != 0:
+            config["analyze.tools"] = {}
+
+        for tool in tools:
+            config["analyze.tools"][tool] = packages[tool]
+    elif args.list:
+        if "analyze.tools" not in config:
+            return
+        for tool in config["analyze.tools"]:
+            print(tool)
+    else:
+        if "analyze.tools" not in config:
+            warn("no analyzers registered in this project")
+            return
+
+        tools = [tool for tool in config["analyze.tools"]]
+        if args.use is not None:
+            for tool in args.use:
+                if tool not in tools:
+                    warn("'{}' is not a registered analyzer for this project", tool)
+                    continue
+            tools = [tool for tool in tools if tool in args.use]
+        run_checks(tools) 
+
+
 
 def deploy(args) -> None:
     # deployed packages have their pair stored in a "requirements.deployed" section in the config.
@@ -244,6 +309,9 @@ def deploy(args) -> None:
     move_to_robotpy_dir()
     config = load_config()
     if args.deploy_lib:
+        if "requirements.deployed" not in config:
+            config["requirements.deployed"] = {}
+        
         deployed = config["requirements.deployed"]
         pkgs = config["requirements"]
 
@@ -258,8 +326,15 @@ def deploy(args) -> None:
             config["requirements.deployed"] = config["requirements"]
 
     if args.deploy_code:
-        msg("Deploying robot code (main: {})".format(config["execution"]["main"]))
-        res = python([config["execution"]["main"], "deploy"])
+        if args.analyze and "analyze.tools" in config:
+            msg("running analyzer checks before deploy")
+            tools = config["analyze.tools"]
+
+            run_checks(tools)
+            
+
+        msg("Deploying robot code (main: {})".format(config["exec"]["main"]))
+        res = python([config["exec"]["main"], "deploy"])
         expect_result(res, "Deploying robot code failed unexpectedly")
 
 
@@ -287,6 +362,9 @@ def configure(args) -> None:
         if group not in config:
             config[group] = {}
         config[group][name] = args.value
+        if group == "auth" and name == "hostname":
+            write_auth_config()
+
     else:
         if group in config and name in config[group]:
             print(config[group][name])
@@ -314,13 +392,13 @@ init_parser.set_defaults(func=initialize)
 # install [--[no-]download] {packages}
 install_parser = subparsers.add_parser("install")
 install_parser.set_defaults(func=install)
-install_parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=True)
+install_parser.add_argument("--download", action=argparse.BooleanOptionalAction)
 install_parser.add_argument("packages", nargs="+")
 
 # handles updates to robotpy (can accept components)
 update_parser = subparsers.add_parser("update")
 update_parser.set_defaults(func=update)
-update_parser.add_argument("--download", action=argparse.BooleanOptionalAction, default=True)
+update_parser.add_argument("--download", action=argparse.BooleanOptionalAction)
 update_parser.add_argument("packages", nargs="*")
 
 remove_parser = subparsers.add_parser("remove")
@@ -328,10 +406,18 @@ remove_parser.set_defaults(func=remove)
 remove_parser.add_argument("packages", nargs="+")
 
 
+check_parser = subparsers.add_parser("analyze")
+check_parser.set_defaults(func=analyze)
+check_group = check_parser.add_mutually_exclusive_group()
+check_group.add_argument("-a", "--add", nargs="+")
+check_group.add_argument("-l", "--list", action="store_true")
+check_group.add_argument("--use", nargs="+")
+
 deploy_parser = subparsers.add_parser("deploy")
 deploy_parser.set_defaults(func=deploy)
 deploy_parser.add_argument("--no-code", dest="deploy_code", action="store_false")
 deploy_parser.add_argument("--no-lib", dest="deploy_lib", action="store_false")
+deploy_parser.add_argument("--analyze", action=argparse.BooleanOptionalAction)
 #  deploy_parser.add_argument("--analyze", action=argparse.BooleanOptionalAction, default=True)
 
 

@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: robotpy-wrapper
-Version: 0.1.0
+Version: 0.2.0
 Summary: A wrapper for the common functions of the robotpy package
 Author-email: Kellen Watt <kellen@wattsoft.dev>
 Classifier: Intended Audience :: Developers
@@ -10,3 +10,5 @@ Classifier: Operating System :: OS Independent
 Classifier: Framework :: Robot Framework :: Library
 Requires-Python: >=3.8
 License-File: LICENSE
+Requires-Dist: robotpy
+Requires-Dist: robotpy-installer
