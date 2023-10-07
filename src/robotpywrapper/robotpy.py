@@ -394,62 +394,77 @@ def configure(args) -> None:
 
 
 parser = argparse.ArgumentParser()
-subparsers = parser.add_subparsers(required=True)
+subparsers = parser.add_subparsers(required=True, title="subcommands", 
+                                   description="These are the options you can use with the robotpy command", 
+                                   metavar="<subcommand>")
 
 parser.set_defaults(verbose_level=1)
-parser.add_argument("-v", "--verbose", action="store_const", dest="verbose_level", const=2)
-parser.add_argument("-q", "--quiet", action="store_const", dest="verbose_level", const=0)
-parser.add_argument("--silent", action="store_const", dest="verbose_level", const=-1)
+parser.add_argument("-v", "--verbose", action="store_const", dest="verbose_level", const=2, 
+                    help="set output to show the output of underlying commands (pip, robotpy_installer, etc.)")
+parser.add_argument("-q", "--quiet", action="store_const", dest="verbose_level", const=0, 
+                    help="don't show normal output. Still shows errors")
+parser.add_argument("--silent", action="store_const", dest="verbose_level", const=-1, 
+                    help="don't show any output, even errors")
 
-init_parser = subparsers.add_parser("initialize", aliases=["init"])
-init_parser.add_argument("-m", "--main", default="robot.py")
-init_parser.add_argument("--bare", action="store_true")
-init_parser.add_argument("--host", dest="host")
-init_parser.add_argument("-t", "--team", dest="host")
-init_parser.add_argument("--git", action=argparse.BooleanOptionalAction, default=True)
+init_parser = subparsers.add_parser("initialize", aliases=["init"], 
+                                    help="Creates a new RobotPy project", usage="%(prog)s [<options>] [directory]")
+init_parser.add_argument("-m", "--main", default="robot.py", help="set main file to MAIN")
+init_parser.add_argument("--bare", action="store_true", help="don't create any skeleton files")
+init_parser.add_argument("--host", dest="host", help="set the hostname of the eventual target")
+init_parser.add_argument("-t", "--team", dest="host", help="alias for --host")
+init_parser.add_argument("--git", action=argparse.BooleanOptionalAction, default=True, help="create git repo in new project (default: true)")
 # requires 3.8+
-init_parser.add_argument("--with", dest="packages", nargs="+", action="extend", default=[])
-init_parser.add_argument("directory", nargs="?")
+init_parser.add_argument("--with", dest="packages", nargs="+", action="extend", default=[], help="install packages alongside initialization")
+init_parser.add_argument("directory", nargs="?", help="create project inside directory (default: current directory)")
 init_parser.set_defaults(func=initialize)
 
 # install [--[no-]download] {packages}
-install_parser = subparsers.add_parser("install")
+install_parser = subparsers.add_parser("install", help="Installs packages to current project", 
+                                       usage="%(prog)s [<options>] <packages>", 
+                                       epilog="Specifying --no-download makes this command work almost like `pip install <packages>`")
 install_parser.set_defaults(func=install)
-install_parser.add_argument("--download", action=argparse.BooleanOptionalAction)
-install_parser.add_argument("packages", nargs="+")
+install_parser.add_argument("--download", action=argparse.BooleanOptionalAction, 
+                            help="download the package for use on the robot (default: true)")
+install_parser.add_argument("packages", nargs="+", help="packages to install")
 
 # handles updates to robotpy (can accept components)
-update_parser = subparsers.add_parser("update")
+update_parser = subparsers.add_parser("update", help="Updates installed packages (including robotpy)", usage="%(prog)s [<options>] [<packages>]")
 update_parser.set_defaults(func=update)
-update_parser.add_argument("--download", action=argparse.BooleanOptionalAction)
-update_parser.add_argument("packages", nargs="*")
+update_parser.add_argument("--download", action=argparse.BooleanOptionalAction, 
+                           help="download the updated package for use on the robot (default: true)")
+update_parser.add_argument("packages", nargs="*", help="packages to update. All if not specified")
 
-remove_parser = subparsers.add_parser("remove")
+remove_parser = subparsers.add_parser("remove", help="Unregisters packages from current project", usage="%(prog)s <packages>")
 remove_parser.set_defaults(func=remove)
-remove_parser.add_argument("packages", nargs="+")
+remove_parser.add_argument("packages", nargs="+", help="packages to remove")
 
 
-check_parser = subparsers.add_parser("analyze")
+check_parser = subparsers.add_parser("analyze", help="Manages and executes static analyzers", 
+                                     usage="%(prog)s [-h] [-l | -a <tools>] | -r <tools> | --use <tools>]")
 check_parser.set_defaults(func=analyze)
 check_group = check_parser.add_mutually_exclusive_group()
-check_group.add_argument("-a", "--add", nargs="+")
-check_group.add_argument("-l", "--list", action="store_true")
-check_group.add_argument("--use", nargs="+")
-check_group.add_argument("-r", "--remove", nargs="+")
+check_group.add_argument("-a", "--add", nargs="+", help="add tool(s) to project")
+check_group.add_argument("-l", "--list", action="store_true", help="print registered tools")
+check_group.add_argument("--use", nargs="+", help="use only selected tool(s)")
+check_group.add_argument("-r", "--remove", nargs="+", help="remove tool(s) from project")
 
-deploy_parser = subparsers.add_parser("deploy")
+deploy_parser = subparsers.add_parser("deploy", help="Deploys code and libraries to the robot", usage="%(prog)s [<options>]")
 deploy_parser.set_defaults(func=deploy)
-deploy_parser.add_argument("--no-code", dest="deploy_code", action="store_false")
-deploy_parser.add_argument("--no-lib", dest="deploy_lib", action="store_false")
-deploy_parser.add_argument("--analyze", action=argparse.BooleanOptionalAction)
-#  deploy_parser.add_argument("--analyze", action=argparse.BooleanOptionalAction, default=True)
+deploy_parser.add_argument("--no-code", dest="deploy_code", action="store_false", help="prevent code from being deployed")
+deploy_parser.add_argument("--no-lib", dest="deploy_lib", action="store_false", help="prevent libraries from being updated")
+deploy_parser.add_argument("--analyze", action=argparse.BooleanOptionalAction, help="statically analyze code before deploy (default: true)")
 
 
-config_parser = subparsers.add_parser("config")
+config_parser = subparsers.add_parser("config", help="Get and set project options", 
+                                      usage="%(prog)s [<options>] key [value]", 
+                                      formatter_class=argparse.RawDescriptionHelpFormatter,
+                                      epilog="Keys are specified in the <group>.<field> format (all but the last '.' are part\n"\
+                                              "of the group name). Any name without a period is invalid. Changing anything in\n"\
+                                              "the 'requirements' or 'requirements.deployed' groups is disallowed.")
 config_parser.set_defaults(func=configure)
-config_parser.add_argument("field")
-config_parser.add_argument("value", nargs="?")
-config_parser.add_argument("--clear", action="store_true")
+config_parser.add_argument("field", help="dot-separated name of the setting")
+config_parser.add_argument("value", nargs="?", help="value to be set. Displays the current value if not given")
+config_parser.add_argument("--clear", action="store_true", help="unset the field")
 
 
 def main() -> None:
