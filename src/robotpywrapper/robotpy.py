@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import subprocess
 import sys
 import os
@@ -39,11 +38,12 @@ if __name__ == "__main__":
     wpilib.run(Robot)
 """
 
+def has_git_installed():
+    res = subprocess.run(["git", "--version"])
+    return res.returncode == 0
+
 
 def python(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    #  cmd = ["python3"]
-    #  if sys.platform == "win32":
-    #      cmd = ["py","-3"]
     global verbose_level
     if "capture_output" not in kwargs:
         kwargs["capture_output"] = verbose_level <= 1
@@ -187,7 +187,10 @@ def initialize(args) -> None:
                 f.write(skeleton_main)
 
     if args.git:
-        subprocess.run(["git", "init"])
+        if has_git_installed():
+            subprocess.run(["git", "init"])
+        else:
+            warn("can't find git. Skipping git initialization")
 
     msg("Downloading python for robot installation")
     res = rpinst(["download-python"])
